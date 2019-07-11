@@ -382,8 +382,7 @@ if [[ "${DPDK_ENABLED}" == "true" ]]; then
 fi
 
 # determine local-ip dynamically based on interface provided but only if tunnel_types is not null
-if [[ -n "${tunnel_types}" ]] ; then
-LOCAL_IP=$(get_ip_address_from_interface ${tunnel_interface})
+LOCAL_IP=$(ip a s $tunnel_interface | grep 'inet ' | head -1 | awk '{print $2}' | awk -F "/" '{print $1}')
 if [ -z "${LOCAL_IP}" ] ; then
   echo "Var LOCAL_IP is empty"
   exit 1
