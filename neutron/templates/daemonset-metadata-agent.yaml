@@ -67,7 +67,7 @@ spec:
             runAsUser: 0
           env:
             - name: NEUTRON_USER_UID
-              value: "{{ .Values.pod.user.neutron.uid }}"
+              value: "{{ .Values.pod.security_context.neutron.pod.runAsUser }}"
           command:
             - /tmp/neutron-metadata-agent-init.sh
           volumeMounts:
