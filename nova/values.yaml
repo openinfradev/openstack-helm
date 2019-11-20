@@ -1667,6 +1667,7 @@ conf:
     - database
     - api_database
     - cell0_database
+    - placement_database
   nova:
     DEFAULT:
       log_config_append: /etc/nova/logging.conf
@@ -1724,6 +1725,8 @@ conf:
       max_retries: -1
     cell0_database:
       max_retries: -1
+    placement_database:
+      max_retries: -1
     keystone_authtoken:
       auth_type: password
       auth_version: v3
@@ -1754,6 +1757,8 @@ conf:
     placement:
       auth_type: password
       auth_version: v3
+      # project_domain_name: Default
+      # user_domain_name: Default
   logging:
     loggers:
       keys:
@@ -1923,6 +1928,26 @@ endpoints:
     host_fqdn_override:
       default: null
     path: /nova_cell0
+    scheme: mysql+pymysql
+    port:
+      mysql:
+        default: 3306
+  oslo_db_placement:
+    auth:
+      admin:
+        username: root
+        password: password
+      nova:
+        username: nova
+        password: password
+      placement:
+        username: placement
+        password: password
+    hosts:
+      default: mariadb
+    host_fqdn_override:
+      default: null
+    path: /placement
     scheme: mysql+pymysql
     port:
       mysql:

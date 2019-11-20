@@ -17,12 +17,15 @@ limitations under the License.
 */}}
 
 set -ex
-NOVA_VERSION=$(nova-manage --version 2>&1 | grep -Eo '[0-9]+[.][0-9]+[.][0-9]+')
+NOVA_VERSION=$(nova-manage --version 2>&1| grep -Eo '[0-9]+[.][0-9]+[.][0-9]+')
 
 function manage_cells () {
   # NOTE(portdirect): check if nova fully supports cells v2, and manage
   # accordingly. Support was complete in ocata (V14.x.x).
-  if [ "${NOVA_VERSION%%.*}" -gt "14" ]; then
+  if [ "${NOVA_VERSION%%.*}" -gt "16" ]; then
+    nova-manage cell_v2 map_cell0
+    nova-manage cell_v2 create_cell --name=cell1 --verbose
+  elif [ "${NOVA_VERSION%%.*}" -gt "14" ]; then
     nova-manage cell_v2 map_cell0
     nova-manage cell_v2 list_cells | grep -q " cell1 " || \
       nova-manage cell_v2 create_cell --name=cell1 --verbose
