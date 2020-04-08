@@ -58,6 +58,29 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.pod.lifecycle.termination_grace_period.ironic_agent.timeout | default "30" }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_ironic_agent_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
+        - name: neutron-ironic-agent-init
+{{ tuple $envAll "neutron_ironic_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
+{{ tuple $envAll $envAll.Values.pod.resources.ironic_agent | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "neutron" "container" "neutron_ironic_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          command:
+            - /tmp/neutron-ironic-agent-init.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-shared
+              mountPath: /tmp/pod-shared
+            - name: neutron-bin
+              mountPath: /tmp/neutron-ironic-agent-init.sh
+              subPath: neutron-ironic-agent-init.sh
+              readOnly: true
+            - name: neutron-etc
+              mountPath: /etc/neutron/neutron.conf
+              subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc
+              mountPath: /etc/neutron/plugins/ml2/ml2_conf.ini
+              subPath: ml2_conf.ini
+              readOnly: true
       containers:
         - name: neutron-ironic-agent
 {{ tuple $envAll "neutron_ironic_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
@@ -75,6 +98,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: pod-shared
+              mountPath: /tmp/pod-shared
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
             - name: neutron-bin
@@ -98,6 +123,8 @@ spec:
 {{ if $mounts_neutron_ironic_agent.volumeMounts }}{{ toYaml $mounts_neutron_ironic_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: pod-shared
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}
