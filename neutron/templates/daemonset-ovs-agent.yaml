@@ -15,13 +15,9 @@ limitations under the License.
 */}}
 
 {{- define "ovsAgentReadinessProbeTemplate" }}
-# ensures this container can can see a br-int
-# bridge before its marked as ready
 exec:
   command:
-    - bash
-    - -c
-    - 'ovs-vsctl list-br | grep -q br-int'
+    - /tmp/neutron-openvswitch-agent-readiness.sh
 {{- end }}
 {{- define "ovsAgentLivenessProbeTemplate" }}
 exec:
@@ -35,6 +31,9 @@ exec:
     - --agent-queue-name
     - q-agent-notifier-tunnel-update
     - --liveness-probe
+{{- if .Values.pod.use_fqdn.neutron_agent }}
+    - --use-fqdn
+{{- end }}
 {{- end }}
 
 {{- define "neutron.ovs_agent.daemonset" }}
@@ -85,11 +84,7 @@ spec:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_ovs_agent_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
         - name: neutron-openvswitch-agent-kernel-modules
 {{ tuple $envAll "neutron_openvswitch_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
-          securityContext:
-            capabilities:
-              add:
-                - SYS_MODULE
-            runAsUser: 0
+{{ dict "envAll" $envAll "application" "neutron_ovs_agent" "container" "neutron_openvswitch_agent_kernel_modules" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/neutron-openvswitch-agent-init-modules.sh
           volumeMounts:
@@ -109,9 +104,7 @@ spec:
         - name: neutron-ovs-agent-init
 {{ tuple $envAll "neutron_openvswitch_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.agent.ovs | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
-          securityContext:
-            privileged: true
-            runAsUser: 0
+{{ dict "envAll" $envAll "application" "neutron_ovs_agent" "container" "neutron_ovs_agent_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/neutron-openvswitch-agent-init.sh
           volumeMounts:
@@ -170,16 +163,12 @@ spec:
             {{- end }}
             {{- range $key, $value := $envAll.Values.conf.rootwrap_filters }}
             {{- if ( has "ovs_agent" $value.pods ) }}
-            {{- if and ( eq "taas" $key ) (not $envAll.Values.conf.plugins.taas.taas.enabled) }}
-                ## if taas is not enabled, do not include taas.filters
-            {{- else }}
             {{- $filePrefix := replace "_" "-"  $key }}
             {{- $rootwrapFile := printf "/etc/neutron/rootwrap.d/%s.filters" $filePrefix }}
             - name: neutron-etc
               mountPath: {{ $rootwrapFile }}
               subPath: {{ base $rootwrapFile }}
               readOnly: true
-            {{- end }}
             {{- end }}
             {{- end }}
             - name: run
@@ -191,8 +180,7 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.agent.ovs | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "component" "ovs_agent" "container" "ovs_agent" "type" "readiness" "probeTemplate" (include "ovsAgentReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "ovs_agent" "container" "ovs_agent" "type" "liveness" "probeTemplate" (include "ovsAgentLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
-          securityContext:
-            privileged: true
+{{ dict "envAll" $envAll "application" "neutron_ovs_agent" "container" "neutron_ovs_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
             - /tmp/neutron-openvswitch-agent.sh
           volumeMounts:
@@ -203,6 +191,10 @@ spec:
             - name: neutron-bin
               mountPath: /tmp/neutron-openvswitch-agent.sh
               subPath: neutron-openvswitch-agent.sh
+              readOnly: true
+            - name: neutron-bin
+              mountPath: /tmp/neutron-openvswitch-agent-readiness.sh
+              subPath: neutron-openvswitch-agent-readiness.sh
               readOnly: true
             - name: neutron-bin
               mountPath: /tmp/health-probe.py
@@ -247,16 +239,12 @@ spec:
               readOnly: true
             {{- range $key, $value := $envAll.Values.conf.rootwrap_filters }}
             {{- if ( has "ovs_agent" $value.pods ) }}
-            {{- if and ( eq "taas" $key ) (not $envAll.Values.conf.plugins.taas.taas.enabled) }}
-                ## if taas is not enabled, do not include taas.filters
-            {{- else }}
             {{- $filePrefix := replace "_" "-"  $key }}
             {{- $rootwrapFile := printf "/etc/neutron/rootwrap.d/%s.filters" $filePrefix }}
             - name: neutron-etc
               mountPath: {{ $rootwrapFile }}
               subPath: {{ base $rootwrapFile }}
               readOnly: true
-            {{- end }}
             {{- end }}
             {{- end }}
             - name: run

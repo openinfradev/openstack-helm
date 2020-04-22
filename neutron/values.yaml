@@ -21,26 +21,28 @@ release_group: null
 
 images:
   tags:
-    bootstrap: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
+    bootstrap: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     test: docker.io/xrally/xrally-openstack:1.3.0
-    db_init: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    neutron_db_sync: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    db_drop: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
+    purge_test: docker.io/openstackhelm/ospurge:latest
+    db_init: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    neutron_db_sync: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    db_drop: docker.io/openstackhelm/heat:stein-ubuntu_bionic
     rabbit_init: docker.io/rabbitmq:3.7-management
-    ks_user: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    ks_service: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    ks_endpoints: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    neutron_server: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_dhcp: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_metadata: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_l3: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_l2gw: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_openvswitch_agent: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_linuxbridge_agent: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    neutron_sriov_agent: docker.io/openstackhelm/neutron:ocata-18.04-sriov
-    neutron_sriov_agent_init: docker.io/openstackhelm/neutron:ocata-18.04-sriov
-    neutron_bagpipe_bgp: docker.io/openstackhelm/neutron:ocata-ubuntu_xenial
-    dep_check: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+    ks_user: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    ks_service: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    ks_endpoints: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    neutron_server: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_dhcp: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_metadata: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_l3: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_l2gw: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_openvswitch_agent: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_linuxbridge_agent: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_sriov_agent: docker.io/openstackhelm/neutron:stein-18.04-sriov
+    neutron_sriov_agent_init: docker.io/openstackhelm/neutron:stein-18.04-sriov
+    neutron_bagpipe_bgp: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    neutron_ironic_agent: docker.io/openstackhelm/neutron:stein-ubuntu_bionic
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -85,13 +87,15 @@ labels:
   server:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+  ironic_agent:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
   test:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
 
 network:
   # provide what type of network wiring will be used
-  # possible options: openvswitch, linuxbridge, sriov
   backend:
     - openvswitch
   # NOTE(Portdirect): Share network namespaces with the host,
@@ -104,7 +108,6 @@ network:
   # If tunnel is null there is a fallback mechanism to search
   # for interface with routing using tunnel network cidr.
     tunnel_network_cidr: "0/0"
-  sriov:
   # To perform setup of network interfaces using the SR-IOV init
   # container you can use a section similar to:
   # sriov:
@@ -112,6 +115,9 @@ network:
   #     num_vfs: 8
   #     mtu: 9214
   #     promisc: false
+  #     qos:
+  #       - vf_num: 0
+  #         share: 10
   server:
     ingress:
       public: true
@@ -299,6 +305,21 @@ dependencies:
           service: oslo_cache
         - endpoint: internal
           service: identity
+    ironic_agent:
+      jobs:
+        - neutron-db-sync
+        - neutron-ks-user
+        - neutron-ks-endpoints
+        - neutron-rabbit-init
+      services:
+        - endpoint: internal
+          service: oslo_db
+        - endpoint: internal
+          service: oslo_messaging
+        - endpoint: internal
+          service: oslo_cache
+        - endpoint: internal
+          service: identity
     tests:
       services:
         - endpoint: internal
@@ -311,6 +332,8 @@ dependencies:
           service: local_image_registry
 
 pod:
+  use_fqdn:
+    neutron_agent: true
   probes:
     dhcp_agent:
       dhcp_agent:
@@ -431,9 +454,27 @@ pod:
     neutron_metadata_agent:
       pod:
         runAsUser: 42424
+      container:
+        neutron_metadata_agent_init:
+          runAsUser: 0
+          readOnlyRootFilesystem: true
     neutron_ovs_agent:
       pod:
         runAsUser: 42424
+      container:
+        neutron_openvswitch_agent_kernel_modules:
+          capabilities:
+            add:
+              - SYS_MODULE
+          runAsUser: 0
+          readOnlyRootFilesystem: true
+        neutron_ovs_agent_init:
+          privileged: true
+          runAsUser: 0
+          readOnlyRootFilesystem: true
+        neutron_ovs_agent:
+          readOnlyRootFilesystem: true
+          privileged: true
     neutron_server:
       pod:
         runAsUser: 42424
@@ -452,6 +493,9 @@ pod:
         neutron_sriov_agent:
           readOnlyRootFilesystem: true
           privileged: true
+    neutron_ironic_agent:
+      pod:
+        runAsUser: 42424
   affinity:
     anti:
       type:
@@ -506,6 +550,11 @@ pod:
       bagpipe_bgp:
         volumeMounts:
         volumes:
+    neutron_ironic_agent:
+      init_container: null
+      neutron_ironic_agent:
+        volumeMounts:
+        volumes:
     neutron_tests:
       init_container: null
       neutron_tests:
@@ -526,6 +575,7 @@ pod:
         volumes:
   replicas:
     server: 1
+    ironic_agent: 1
   lifecycle:
     upgrades:
       deployments:
@@ -565,6 +615,8 @@ pod:
         min_available: 0
     termination_grace_period:
       server:
+        timeout: 30
+      ironic_agent:
         timeout: 30
   resources:
     enabled: false
@@ -626,6 +678,13 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
     server:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    ironic_agent:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -706,6 +765,7 @@ pod:
 
 conf:
   rally_tests:
+    force_project_purge: false
     run_tempest: false
     tests:
       NeutronNetworks.create_and_delete_networks:
@@ -991,7 +1051,7 @@ conf:
     filter:extensions:
       paste.filter_factory: neutron.api.extensions:plugin_aware_extension_middleware_factory
     app:neutronversions:
-      paste.app_factory: neutron.api.versions:Versions.factory
+      paste.app_factory: neutron.pecan_wsgi.app:versions_factory
     app:neutronapiapp_v2_0:
       paste.app_factory: neutron.api.v2.router:APIRouter.factory
     filter:osprofiler:
@@ -1223,7 +1283,7 @@ conf:
     [DEFAULT]
     # List of directories to load filter definitions from (separated by ',').
     # These directories MUST all be only writeable by root !
-    filters_path=/etc/neutron/rootwrap.d,/usr/share/neutron/rootwrap
+    filters_path=/etc/neutron/rootwrap.d,/usr/share/neutron/rootwrap,/var/lib/openstack/etc/neutron/rootwrap.d
 
     # List of directories to search executables in, in case filters do not
     # explicitely specify a full path (separated by ',')
@@ -1653,23 +1713,6 @@ conf:
         # NOTE: A second `--config-file` arg can also be added above. Since
         # many neutron components are installed like that (eg: by devstack).
         # Adjust to suit local requirements.
-    taas:
-      pods:
-        - ovs_agent
-        - sriov_agent
-      content: |
-        # neutron-rootwrap command filters for nodes on which neutron
-        # tap-as-a-service(taas) is eanbled.  Taas uses this command
-        # as part of its flow control.
-
-        # format seems to be
-        # cmd-name: filter-name, raw-command, user, args
-
-        [Filters]
-
-        # This is needed to allow taas to insert/remove vlan id to the
-        # target vf under /sys/class/net/[device-name]/device/sriov/[vf-index]/[mirror]
-        i40e_sysfs_command: RegExpFilter, i40e_sysfs_command, root, i40e_sysfs_command, \w+, .+, .+
     linux_vxlan:
       pods:
         - bagpipe_bgp
@@ -1767,10 +1810,16 @@ conf:
       auth_version: v3
       endpoint_type: internal
       allow_reverse_dns_lookup: true
+    ironic:
+      auth_type: password
+      auth_version: v3
+      endpoint_type: internal
     keystone_authtoken:
       memcache_security_strategy: ENCRYPT
       auth_type: password
       auth_version: v3
+    octavia:
+      request_poll_timeout: 3000
   logging:
     loggers:
       keys:
@@ -1968,6 +2017,7 @@ conf:
         bridge: br-phy
         migrate_ip: true
         n_rxq: 2
+        n_txq: 2
         pmd_rxq_affinity: "0:3,1:27"
         ofport_request: 1
         # optional parameters for tuning the OVS DPDK config
@@ -1975,6 +2025,7 @@ conf:
         # mtu: 2000
         # n_rxq_size: 1024
         # n_txq_size: 1024
+        # vhost-iommu-support: true
     bridges:
       - name: br-phy
     # Optional parameter for configuring bonding in OVS-DPDK
@@ -1989,10 +2040,13 @@ conf:
     #     # rather than denoting the total number of rx queues for
     #     # the bond as a whole. So setting n_rxq = 2 below for ex.
     #     # would be 4 rx queues in total for the bond.
+    #     # Same for n_txq
     #     n_rxq: 2
+    #     n_txq: 2
     #     ofport_request: 1
     #     n_rxq_size: 1024
     #     n_txq_size: 1024
+    #     vhost-iommu-support: true
     #     ovs_options: "bond_mode=active-backup"
     #     nics:
     #       - name: dpdk_b0s0
@@ -2162,11 +2216,24 @@ endpoints:
         password: password
         user_domain_name: service
         project_domain_name: service
+      ironic:
+        region_name: RegionOne
+        project_name: service
+        username: ironic
+        password: password
+        user_domain_name: service
+        project_domain_name: service
       test:
         role: admin
         region_name: RegionOne
         username: neutron-test
         password: password
+        # NOTE: this project will be purged and reset if
+        # conf.rally_tests.force_project_purge is set to true
+        # which may be required upon test failure, but be aware that this will
+        # expunge all openstack objects, so if this is used a seperate project
+        # should be used for each helm test, and also it should be ensured
+        # that this project is not in use by other tenants
         project_name: test
         user_domain_name: service
         project_domain_name: service
@@ -2205,6 +2272,21 @@ endpoints:
       api:
         default: 9696
         public: 80
+  load_balancer:
+    name: octavia
+    hosts:
+      default: octavia-api
+      public: octavia
+    host_fqdn_override:
+      default: null
+    path:
+      default: null
+    scheme:
+      default: http
+    port:
+      api:
+        default: 9876
+        public: 80
   fluentd:
     namespace: osh-infra
     name: fluentd
@@ -2235,20 +2317,45 @@ endpoints:
       api:
         default: 9001
         public: 80
-
-  #NOTE(tp6510): these endpoints allow for things like DNS lookups and apiserver access.
-  # They are using to enable the Egress K8s network policy.
-  k8s:
+  baremetal:
+    name: ironic
+    hosts:
+      default: ironic-api
+      public: ironic
+    host_fqdn_override:
+      default: null
+    path:
+      default: null
+    scheme:
+      default: 'http'
     port:
       api:
-        default: 6443
-        internal: 5000
-  default:
-    namespace: default
-  kube_system:
+        default: 6385
+        public: 80
+  # NOTE(tp6510): these endpoints allow for things like DNS lookups and ingress
+  # They are using to enable the Egress K8s network policy.
+  kube_dns:
     namespace: kube-system
-  kube_public:
-    namespace: kube-public
+    name: kubernetes-dns
+    hosts:
+      default: kube-dns
+    host_fqdn_override:
+      default: null
+    path:
+      default: null
+    scheme: http
+    port:
+      dns:
+        default: 53
+        protocol: UDP
+  ingress:
+    namespace: null
+    name: ingress
+    hosts:
+      default: ingress
+    port:
+      ingress:
+        default: 80
 
 network_policy:
   neutron:
@@ -2269,6 +2376,7 @@ manifests:
   daemonset_sriov_agent: true
   daemonset_l2gw_agent: false
   daemonset_bagpipe_bgp: false
+  deployment_ironic_agent: false
   deployment_server: true
   ingress_server: true
   job_bootstrap: true

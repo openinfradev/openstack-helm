@@ -23,6 +23,9 @@ exec:
     - /etc/neutron/neutron.conf
     - --config-file
     - /etc/neutron/sriov_agent.ini
+{{- if .Values.pod.use_fqdn.neutron_agent }}
+    - --use-fqdn
+{{- end }}
 {{- end }}
 
 {{- define "neutron.sriov_agent.daemonset" }}
@@ -117,16 +120,12 @@ spec:
               readOnly: true
             {{- range $key, $value := $envAll.Values.conf.rootwrap_filters }}
             {{- if ( has "sriov_agent" $value.pods ) }}
-            {{- if and ( eq "taas" $key ) (not $envAll.Values.conf.plugins.taas.taas.enabled) }}
-                ## if taas is not enabled, do not include taas.filters
-            {{- else }}
             {{- $filePrefix := replace "_" "-"  $key }}
             {{- $rootwrapFile := printf "/etc/neutron/rootwrap.d/%s.filters" $filePrefix }}
             - name: neutron-etc
               mountPath: {{ $rootwrapFile }}
               subPath: {{ base $rootwrapFile }}
               readOnly: true
-            {{- end }}
             {{- end }}
             {{- end }}
             - name: run
@@ -196,16 +195,12 @@ spec:
               readOnly: true
             {{- range $key, $value := $envAll.Values.conf.rootwrap_filters }}
             {{- if ( has "sriov_agent" $value.pods ) }}
-            {{- if and ( eq "taas" $key ) (not $envAll.Values.conf.plugins.taas.taas.enabled) }}
-                ## if taas is not enabled, do not include taas.filters
-            {{- else }}
             {{- $filePrefix := replace "_" "-"  $key }}
             {{- $rootwrapFile := printf "/etc/neutron/rootwrap.d/%s.filters" $filePrefix }}
             - name: neutron-etc
               mountPath: {{ $rootwrapFile }}
               subPath: {{ base $rootwrapFile }}
               readOnly: true
-            {{- end }}
             {{- end }}
             {{- end }}
             - name: run

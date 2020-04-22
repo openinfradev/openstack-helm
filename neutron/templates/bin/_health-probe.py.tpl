@@ -1,18 +1,20 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 
-# Copyright 2019 The Openstack-Helm Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+{{/*
+Copyright 2019 The Openstack-Helm Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/}}
 
 """
 Health probe script for OpenStack agents that uses RPC/unix domain socket for
@@ -52,11 +54,18 @@ tcp_established = "ESTABLISHED"
 log.logging.basicConfig(level=log.ERROR)
 
 
+def _get_hostname(use_fqdn):
+    if use_fqdn:
+        return socket.getfqdn()
+    return socket.gethostname()
+
 def check_agent_status(transport):
     """Verify agent status. Return success if agent consumes message"""
     try:
-        target = oslo_messaging.Target(topic=cfg.CONF.agent_queue_name,
-                                       server=socket.gethostname())
+        use_fqdn = cfg.CONF.use_fqdn
+        target = oslo_messaging.Target(
+            topic=cfg.CONF.agent_queue_name,
+            server=_get_hostname(use_fqdn))
         client = oslo_messaging.RPCClient(transport, target,
                                           timeout=60,
                                           retry=2)
@@ -148,25 +157,26 @@ def tcp_socket_state_check(agentq):
 
     rabbitmq_ports = get_rabbitmq_ports()
 
-    for pr in psutil.pids():
+    for p in psutil.process_iter():
         try:
-            p = psutil.Process(pr)
-            if p.name() == proc:
-                if parentId == 0:
-                    parentId = p.pid
-                else:
-                    if p.ppid() == parentId:
-                        continue
-                pcon = p.connections()
-                for con in pcon:
-                    try:
-                        port = con.raddr[1]
-                        status = con.status
-                    except IndexError:
-                        continue
-                    if port in rabbitmq_ports and status == tcp_established:
-                        rabbit_sock_count = rabbit_sock_count + 1
-        except psutil.NoSuchProcess:
+            with p.oneshot():
+                if proc in " ".join(p.cmdline()):
+                    if parentId == 0:
+                        parentId = p.pid
+                    else:
+                        if p.ppid() == parentId:
+                            continue
+                    pcon = p.connections()
+                    for con in pcon:
+                        try:
+                            port = con.raddr[1]
+                            status = con.status
+                        except IndexError:
+                            continue
+                        if port in rabbitmq_ports and\
+                                status == tcp_established:
+                            rabbit_sock_count = rabbit_sock_count + 1
+        except psutil.Error:
             continue
 
     if rabbit_sock_count == 0:
@@ -195,6 +205,8 @@ class UnixDomainHTTPConnection(httplib.HTTPConnection):
 def test_socket_liveness():
     """Test if agent can respond to message over the socket"""
     cfg.CONF.register_cli_opt(cfg.BoolOpt('liveness-probe', default=False,
+                                          required=False))
+    cfg.CONF.register_cli_opt(cfg.BoolOpt('use-fqdn', default=False,
                                           required=False))
     cfg.CONF(sys.argv[1:])
 
@@ -249,6 +261,8 @@ def test_rpc_liveness():
     cfg.CONF.register_group(rabbit_group)
     cfg.CONF.register_cli_opt(cfg.StrOpt('agent-queue-name'))
     cfg.CONF.register_cli_opt(cfg.BoolOpt('liveness-probe', default=False,
+                                          required=False))
+    cfg.CONF.register_cli_opt(cfg.BoolOpt('use-fqdn', default=False,
                                           required=False))
 
     cfg.CONF(sys.argv[1:])

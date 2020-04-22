@@ -30,16 +30,16 @@ release_group: null
 
 images:
   tags:
-    bootstrap: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    dep_check: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
-    scripted_test: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    db_init: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    barbican_db_sync: docker.io/openstackhelm/barbican:ocata-ubuntu_xenial
-    db_drop: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    ks_user: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    ks_service: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    ks_endpoints: docker.io/openstackhelm/heat:ocata-ubuntu_xenial
-    barbican_api: docker.io/openstackhelm/barbican:ocata-ubuntu_xenial
+    bootstrap: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+    scripted_test: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    db_init: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    barbican_db_sync: docker.io/openstackhelm/barbican:stein-ubuntu_bionic
+    db_drop: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    ks_user: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    ks_service: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    ks_endpoints: docker.io/openstackhelm/heat:stein-ubuntu_bionic
+    barbican_api: docker.io/openstackhelm/barbican:stein-ubuntu_bionic
     rabbit_init: docker.io/rabbitmq:3.7-management
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
@@ -197,21 +197,9 @@ network:
 network_policy:
   barbican:
     ingress:
-      - from:
-        - podSelector:
-            matchLabels:
-              application: barbican
-        - podSelector:
-            matchLabels:
-              application: ingress
-        - podSelector:
-            matchLabels:
-              application: horizon
-        ports:
-        - protocol: TCP
-          port: 80
-        - protocol: TCP
-          port: 9311
+      - {}
+    egress:
+      - {}
 
 bootstrap:
   enabled: false
@@ -334,14 +322,10 @@ conf:
     admin_or_creator: rule:admin or rule:creator
     all_but_audit: rule:admin or rule:observer or rule:creator
     all_users: rule:admin or rule:observer or rule:creator or rule:audit or rule:service_admin
-    secret_project_match: project:%(target.secret.project_id)s
     secret_acl_read: "'read':%(target.secret.read)s"
     secret_private_read: "'False':%(target.secret.read_project_access)s"
-    secret_creator_user: user:%(target.secret.creator_id)s
-    container_project_match: project:%(target.container.project_id)s
     container_acl_read: "'read':%(target.container.read)s"
     container_private_read: "'False':%(target.container.read_project_access)s"
-    container_creator_user: user:%(target.container.creator_id)s
     secret_non_private_read: rule:all_users and rule:secret_project_match and not rule:secret_private_read
     secret_decrypt_non_private_read: rule:all_but_audit and rule:secret_project_match
       and not rule:secret_private_read
@@ -419,6 +403,10 @@ conf:
     secretstore_preferred:post: rule:admin
     secretstore_preferred:delete: rule:admin
     secretstore:get: rule:admin
+    secret_project_match: project_id:%(target.secret.project_id)s
+    secret_creator_user: user_id:%(target.secret.creator_id)s
+    container_project_match: project_id:%(target.container.project_id)s
+    container_creator_user: user_id:%(target.container.creator_id)s
   audit_map:
     DEFAULT:
       # default target endpoint type
@@ -674,6 +662,30 @@ endpoints:
         default: 24224
       metrics:
         default: 24220
+  # NOTE(tp6510): these endpoints allow for things like DNS lookups and ingress
+  # They are using to enable the Egress K8s network policy.
+  kube_dns:
+    namespace: kube-system
+    name: kubernetes-dns
+    hosts:
+      default: kube-dns
+    host_fqdn_override:
+      default: null
+    path:
+      default: null
+    scheme: http
+    port:
+      dns:
+        default: 53
+        protocol: UDP
+  ingress:
+    namespace: null
+    name: ingress
+    hosts:
+      default: ingress
+    port:
+      ingress:
+        default: 80
 
 manifests:
   configmap_bin: true

@@ -55,7 +55,7 @@ images:
     aodh_listener: docker.io/kolla/ubuntu-source-aodh-listener:ocata
     aodh_notifier: docker.io/kolla/ubuntu-source-aodh-notifier:ocata
     aodh_alarms_cleaner: docker.io/kolla/ubuntu-source-aodh-base:ocata
-    dep_check: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -693,6 +693,13 @@ endpoints:
       metrics:
         default: 24220
 
+network_policy:
+  aodh:
+    ingress:
+      - {}
+    egress:
+      - {}
+
 manifests:
   configmap_bin: true
   configmap_etc: true
@@ -711,6 +718,7 @@ manifests:
   job_ks_endpoints: true
   job_ks_service: true
   job_ks_user: true
+  network_policy: false
   pdb_api: true
   pod_aodh_test: true
   secret_db: true

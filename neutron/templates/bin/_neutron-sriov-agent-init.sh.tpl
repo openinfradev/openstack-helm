@@ -43,6 +43,13 @@ else
   echo "${NUM_VFS}" > /sys/class/net/{{ $sriov.device }}/device/sriov_numvfs
 fi
 
+{{- if hasKey $sriov "qos" -}}
+{{- range $v, $qos := $sriov.qos }}
+echo "{{ $qos.share }}" > /sys/class/net/{{ $sriov.device }}/device/sriov/{{ $qos.vf_num }}/qos/share
+{{- end}}
+echo "1" > /sys/class/net/{{ $sriov.device }}/device/sriov/qos/apply
+{{- end }}
+
 {{- if $sriov.mtu }}
 ip link set dev {{ $sriov.device }} mtu {{ $sriov.mtu }}
 {{- end }}
@@ -67,3 +74,11 @@ ethtool --set-priv-flags ${NIC_FIRST_PORT} vf-true-promisc-support ${promisc_mod
 {{- if ( has "besteffort" .Values.conf.sriov_init ) }}
 exit 0
 {{ end }}
+
+{{- if and ( empty .Values.conf.neutron.DEFAULT.host ) ( .Values.pod.use_fqdn.neutron_agent ) }}
+mkdir -p /tmp/pod-shared
+tee > /tmp/pod-shared/neutron-agent.ini << EOF
+[DEFAULT]
+host = $(hostname --fqdn)
+EOF
+{{- end }}

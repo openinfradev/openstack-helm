@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 
 # Copyright 2019 The Openstack-Helm Authors.
 #
@@ -46,13 +46,22 @@ import oslo_messaging
 tcp_established = "ESTABLISHED"
 
 
+def _get_hostname(topic, use_fqdn):
+    if use_fqdn and topic == "compute":
+        return socket.getfqdn()
+    return socket.gethostname()
+
+
 def check_service_status(transport):
     """Verify service status. Return success if service consumes message"""
     try:
-        target = oslo_messaging.Target(topic=cfg.CONF.service_queue_name,
-                                       server=socket.gethostname(),
-                                       namespace='baseapi',
-                                       version="1.1")
+        service_queue_name = cfg.CONF.service_queue_name
+        use_fqdn = cfg.CONF.use_fqdn
+        target = oslo_messaging.Target(
+            topic=service_queue_name,
+            server=_get_hostname(service_queue_name, use_fqdn),
+            namespace='baseapi',
+            version="1.1")
         client = oslo_messaging.RPCClient(transport, target,
                                           timeout=60,
                                           retry=2)
@@ -88,33 +97,22 @@ def check_service_status(transport):
 
 def tcp_socket_status(process, ports):
     """Check the tcp socket status on a process"""
-    sock_count = 0
-    parentId = 0
-    for pr in psutil.pids():
+    for p in psutil.process_iter():
         try:
-            p = psutil.Process(pr)
-            if p.name() == process:
-                if parentId == 0:
-                    parentId = p.pid
-                else:
-                    if p.ppid() == parentId and not cfg.CONF.check_all_pids:
-                        continue
-                pcon = p.connections()
-                for con in pcon:
-                    try:
-                        rport = con.raddr[1]
-                        status = con.status
-                    except IndexError:
-                        continue
-                    if rport in ports and status == tcp_established:
-                        sock_count = sock_count + 1
-        except psutil.NoSuchProcess:
+            with p.oneshot():
+                if process in " ".join(p.cmdline()):
+                    pcon = p.connections()
+                    for con in pcon:
+                        try:
+                            rport = con.raddr[1]
+                            status = con.status
+                        except IndexError:
+                            continue
+                        if rport in ports and status == tcp_established:
+                            return 1
+        except psutil.Error:
             continue
-
-    if sock_count == 0:
-        return 0
-    else:
-        return 1
+    return 0
 
 
 def configured_port_in_conf():
@@ -188,7 +186,7 @@ def test_rpc_liveness():
     cfg.CONF.register_cli_opt(cfg.StrOpt('service-queue-name'))
     cfg.CONF.register_cli_opt(cfg.BoolOpt('liveness-probe', default=False,
                                           required=False))
-    cfg.CONF.register_cli_opt(cfg.BoolOpt('check-all-pids', default=False,
+    cfg.CONF.register_cli_opt(cfg.BoolOpt('use-fqdn', default=False,
                                           required=False))
 
     cfg.CONF(sys.argv[1:])

@@ -21,6 +21,10 @@ set -ex
 OVS_SOCKET=/run/openvswitch/db.sock
 chown neutron: ${OVS_SOCKET}
 
+# This enables the usage of 'ovs-appctl' from neutron pod.
+OVS_PID=$(cat /run/openvswitch/ovs-vswitchd.pid)
+OVS_CTL=/run/openvswitch/ovs-vswitchd.${OVS_PID}.ctl
+chown neutron: ${OVS_CTL}
 
 function get_dpdk_config_value {
   values=$1
@@ -175,13 +179,14 @@ function process_dpdk_nics {
 
     iface=$(get_name_by_pci_id "${pci_id}")
 
-    if [ -n "${vf_index}" ]; then
-      vf_string="vf ${vf_index}"
+    if [ -n "${iface}" ]; then
+      ip link set ${iface} promisc on
+      if [ -n "${vf_index}" ]; then
+        vf_string="vf ${vf_index}"
+        ip link set ${iface} ${vf_string} trust on
+        ip link set ${iface} ${vf_string} spoofchk off
+      fi
     fi
-
-    ip link set ${iface} promisc on
-    ip link set ${iface} ${vf_string} trust on
-    ip link set ${iface} ${vf_string} spoofchk off
 
     # Fetch the PCI to be bound to DPDK driver.
     # In case VF Index is configured then PCI of that particular VF
@@ -201,6 +206,10 @@ function process_dpdk_nics {
     if [ -n "${n_rxq}" ]; then
       dpdk_options+='options:n_rxq=${n_rxq} '
     fi
+    n_txq=$(get_dpdk_config_value ${nic} '.n_txq')
+    if [ -n "${n_txq}" ]; then
+      dpdk_options+='options:n_txq=${n_txq} '
+    fi
     pmd_rxq_affinity=$(get_dpdk_config_value ${nic} '.pmd_rxq_affinity')
     if [ -n "${pmd_rxq_affinity}" ]; then
       dpdk_options+='other_config:pmd-rxq-affinity=${pmd_rxq_affinity} '
@@ -216,6 +225,10 @@ function process_dpdk_nics {
     n_txq_size=$(get_dpdk_config_value ${nic} '.n_txq_size')
     if [ -n "${n_txq_size}" ]; then
       dpdk_options+='options:n_txq_desc=${n_txq_size} '
+    fi
+    vhost_iommu_support=$(get_dpdk_config_value ${nic} '.vhost-iommu-support')
+    if [ -n "${vhost_iommu_support}" ]; then
+      dpdk_options+='options:vhost-iommu-support=${vhost_iommu_support} '
     fi
 
     ovs-vsctl --db=unix:${OVS_SOCKET} --may-exist add-port ${bridge} ${port_name} \
@@ -234,9 +247,11 @@ function process_dpdk_bonds {
     local migrate_ip=$(get_dpdk_config_value ${bond} '.migrate_ip')
     local mtu=$(get_dpdk_config_value ${bond} '.mtu')
     local n_rxq=$(get_dpdk_config_value ${bond} '.n_rxq')
+    local n_txq=$(get_dpdk_config_value ${bond} '.n_txq')
     local ofport_request=$(get_dpdk_config_value ${bond} '.ofport_request')
     local n_rxq_size=$(get_dpdk_config_value ${bond} '.n_rxq_size')
     local n_txq_size=$(get_dpdk_config_value ${bond} '.n_txq_size')
+    local vhost_iommu_support=$(get_dpdk_config_value ${bond} '.vhost-iommu-support')
     local ovs_options=$(get_dpdk_config_value ${bond} '.ovs_options')
 
     local nic_name_str=""
@@ -258,13 +273,14 @@ function process_dpdk_bonds {
 
       iface=$(get_name_by_pci_id "${pci_id}")
 
-      if [ -n "${vf_index}" ]; then
-        vf_string="vf ${vf_index}"
+      if [ -n "${iface}" ]; then
+        ip link set ${iface} promisc on
+        if [ -n "${vf_index}" ]; then
+          vf_string="vf ${vf_index}"
+          ip link set ${iface} ${vf_string} trust on
+          ip link set ${iface} ${vf_string} spoofchk off
+        fi
       fi
-
-      ip link set ${iface} promisc on
-      ip link set ${iface} ${vf_string} trust on
-      ip link set ${iface} ${vf_string} spoofchk off
 
       # Fetch the PCI to be bound to DPDK driver.
       # In case VF Index is configured then PCI of that particular VF
@@ -284,6 +300,10 @@ function process_dpdk_bonds {
         dev_args_str+=" -- set Interface "${nic_name}" options:n_rxq=${n_rxq}"
       fi
 
+      if [[ -n ${n_txq} ]]; then
+        dev_args_str+=" -- set Interface "${nic_name}" options:n_txq=${n_txq}"
+      fi
+
       if [[ -n ${ofport_request} ]]; then
         dev_args_str+=" -- set Interface "${nic_name}" ofport_request=${ofport_request}"
       fi
@@ -298,6 +318,10 @@ function process_dpdk_bonds {
 
       if [[ -n ${n_txq_size} ]]; then
         dev_args_str+=" -- set Interface "${nic_name}" options:n_txq_desc=${n_txq_size}"
+      fi
+
+      if [[ -n ${vhost_iommu_support} ]]; then
+        dev_args_str+=" -- set Interface "${nic_name}" options:vhost-iommu-support=${vhost_iommu_support}"
       fi
     done < /tmp/nics_array
 
@@ -327,22 +351,6 @@ function init_ovs_dpdk_bridges {
     init_ovs_dpdk_bridge ${br}
   done
 }
-
-
-# FIXME(portdirect): There is a neutron bug in Queens that needs resolved
-# for now, if we cannot even get the version of neutron-sanity-check, skip
-# this validation.
-# see: https://bugs.launchpad.net/neutron/+bug/1769868
-if neutron-sanity-check --version >/dev/null 2>/dev/null; then
-  # ensure we can talk to openvswitch or bail early
-  # this is until we can setup a proper dependency
-  # on deaemonsets - note that a show is not sufficient
-  # here, we need to communicate with both the db and vswitchd
-  # which means we need to do a create action
-  #
-  # see https://github.com/att-comdev/openstack-helm/issues/88
-  timeout 3m neutron-sanity-check --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/openvswitch_agent.ini --ovsdb_native --nokeepalived_ipv6_support
-fi
 
 # handle any bridge mappings
 # /tmp/auto_bridge_add is one line json file: {"br-ex1":"eth1","br-ex2":"eth2"}
@@ -394,3 +402,11 @@ tee > /tmp/pod-shared/ml2-local-ip.ini << EOF
 local_ip = "${LOCAL_IP}"
 EOF
 fi
+
+{{- if and ( empty .Values.conf.neutron.DEFAULT.host ) ( .Values.pod.use_fqdn.neutron_agent ) }}
+mkdir -p /tmp/pod-shared
+tee > /tmp/pod-shared/neutron-agent.ini << EOF
+[DEFAULT]
+host = $(hostname --fqdn)
+EOF
+{{- end }}

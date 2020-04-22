@@ -27,6 +27,7 @@ if [ "x$(systemd-detect-virt)" == "xnone" ]; then
   echo 'OSH is not being deployed in virtualized environment'
   helm upgrade --install nova ./nova \
       --namespace=openstack \
+      --set bootstrap.wait_for_computes.enabled=true \
       --set conf.ceph.enabled=false \
       ${OSH_EXTRA_HELM_ARGS:=} \
       ${OSH_EXTRA_HELM_ARGS_NOVA}
@@ -34,6 +35,7 @@ else
   echo 'OSH is being deployed in virtualized environment, using qemu for nova'
   helm upgrade --install nova ./nova \
       --namespace=openstack \
+      --set bootstrap.wait_for_computes.enabled=true \
       --set conf.ceph.enabled=false \
       --set conf.nova.libvirt.virt_type=qemu \
       --set conf.nova.libvirt.cpu_mode=none \
@@ -88,3 +90,12 @@ openstack service list
 sleep 30 #NOTE(portdirect): Wait for ingress controller to update rules and restart Nginx
 openstack compute service list
 openstack network agent list
+openstack hypervisor list
+
+# Delete the test pods if they still exist
+kubectl delete pods -l application=nova,release_group=nova,component=test --namespace=openstack --ignore-not-found
+kubectl delete pods -l application=neutron,release_group=neutron,component=test --namespace=openstack --ignore-not-found
+
+timeout=${OSH_TEST_TIMEOUT:-900}
+helm test nova --timeout $timeout
+helm test neutron --timeout $timeout
